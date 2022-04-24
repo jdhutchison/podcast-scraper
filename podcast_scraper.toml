@@ -1,0 +1,33 @@
+[general]
+# How long between downloading a file 
+throttle_seconds = 5
+save_path = "/data/audio/podcasts"
+
+[defaults]
+halt_on_existing = true
+max_episodes = 0
+skip_if_matching = [ ]
+fetch_if_matching = [ ]
+download_path_format = "{ep_number} - {ep_title}.mp3"
+min_ep_number_width = 2
+min_season_width = 2
+get_episode_number_from_title = true
+
+[scrapers]
+
+[scrapers.example]
+enabled = true
+type = "rss"
+name = "Example Podcasr"
+feed_url = "https://feeds.feedburner.com/example"
+# max_episodes = 7
+title_parsing_regex = '^Show (\d+) - (.+)$'
+
+
+[scrapers.test]
+enabled = false
+type = "x"
+name = "FAIL FAIL FAIL"
+feed_url = ""
+feed_type = "xml"
+
