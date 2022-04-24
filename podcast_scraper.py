@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import sys
 import toml
 import datetime
 import requests
@@ -209,10 +210,34 @@ def scraper_factory(scraper_config):
     else:
         raise Exception("Unsupported or unknown scrapper type of {}".format(scraper_type))
 
+def read_config(args):
+    """
+    Checks if there is a command line argument and if so tries to use that argument as the path to 
+    load configuration. If there is no command line argument then the config file is assumed to be
+    'podcast_scraper.toml'. If whatever path is used doesn't exist an exception is thrown. 
+
+    params:
+    args: (str[]) Command line arguments, ie. sys.argv.
+
+    returns: (dict) The loaded configuration.  
+    """
+    # Determine what config file to use - the default or one from the command line. 
+    config_file_path = "podcast_scraper.toml"
+    if len(args) >= 2:
+        config_file_path = args[1]
+
+    print("Using '{}' as the configuration file".format(config_file_path))
+
+    # Better check it exists
+    if not os.path.exists(config_file_path):
+        raise Exception("Can't find the configuration file {}.".format(config_file_path))
+
+    return toml.load(config_file_path)
+    
+
 if __name__ == "__main__":
-    # Load configuration
     print("Commencing podcast scraping at {}".format(datetime.datetime.now())) # TODO: fix timestamp format
-    config = toml.load("podcast_scraper.toml")
+    config = read_config(sys.argv)
 
     # Determine the active scrapers
     scrapers = config["scrapers"]
