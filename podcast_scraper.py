@@ -41,21 +41,22 @@ class Scraper(ABC):
         self.min_season_width = config["min_season_width"]
         self.min_episode_width = config["min_ep_number_width"]
         self.download_path_format = config["download_path_format"]
-        self.max_episodes_before_halt = config["max_episodes"]
+        self.max_episodes = config["max_episodes"]
         self.halt_on_existing = config["halt_on_existing"]
         self.ignore_if_title_match_any = config["skip_if_matching"]
         self.title_must_match_one_of = config["fetch_if_matching"]
         self.get_episode_number_from_title = config["get_episode_number_from_title"]
+        self.delete_episodes_if_over_limit = config["delete_episodes_if_over_limit"]
 
     def scrape_podcast(self):
         episodes = self.get_episodes_from_feed()
         print("There are {} episodes".format(len(episodes)))
         for ep in episodes:
             episode_data = self.get_episode_data(ep)
-            episode_status = self.check_episode(episode_data)
+            episode_status = self.__check_episode(episode_data)
             if episode_status == "OK":
                 print("Downloading episode #{episode} - {title}".format(**episode_data))
-                self.download_episode(episode_data)
+                self.__download_episode(episode_data)
             elif episode_status == "SKIP":
                 pass
             elif episode_status == "HALT":
@@ -81,7 +82,7 @@ class Scraper(ABC):
     def get_episodes_from_feed(self):
         pass
 
-    def determine_download_path(self, episode_data):
+    def __determine_download_path(self, episode_data):
         path_values = dict()
         path_values["ep_title"] = tidy_up_title(episode_data["title"])
   
@@ -94,7 +95,7 @@ class Scraper(ABC):
         return os.path.join(self.save_path, self.podcast_name, filename)
         
 
-    def check_episode(self, episode_data):
+    def __check_episode(self, episode_data):
         """
         Checks to see if the episode should be downloaded or not and if the scraper should skip this episode or stop altogether. 
         This method should return one of three string values:
@@ -118,7 +119,7 @@ class Scraper(ABC):
             return "SKIP"
 
         # Already exists
-        episode_data["download_path"] = self.determine_download_path(episode_data)
+        episode_data["download_path"] = self.__determine_download_path(episode_data)
         if os.path.exists(episode_data["download_path"]):
            # Halt or keep going? 
            if self.halt_on_existing:
@@ -131,17 +132,39 @@ class Scraper(ABC):
         # not too old
         # TODO: implement age check
         
-        # not too many existing
+        # not too many existing or we can delete episodes if needed
         path = os.path.dirname(episode_data["download_path"])
-        if 0 < self.max_episodes_before_halt >= count_files_in_dir(path):
+        if 0 < self.max_episodes >= count_files_in_dir(path) and not self.delete_episodes_if_over_limit:
             print("Halting on episode {} due to the maxium number of episodes for this podcast reached ({})".format(episode_data["title"], self.max_episodes_before_halt))
             return "HALT"
 
         # No reason not to fetch it. 
         return "OK"
 
+    def __delete_old_episodes_if_needed(self, download_path):
+        """
+        Deletes old episodes in order to get a podcast under the limit to download a new episode. Will delete as many episodes
+        as required. 
+  
+        params: 
+        download_path: (str) the path the new episode is to downloaded into. 
+        """
+        path = os.path.dirname(download_path)
+        # The +1 is because we're about to download a new episode
+        over_limit = len(os.listdir(path)) - (self.max_episodes + 1) 
 
-    def download_episode(self, episode_data):
+        if self.delete_episodes_if_over_limit and over_limit > 0:
+            # Determine the oldest n files and delete them
+            files = [os.path.join(path, f) for f in os.listdir(path) if not os.path.isdir(os.path.join(path, f))] # Exclude directories
+            episodes = sorted(files, key=os.path.getctime)
+            for ep in episodes[0:over_limit]:
+                print("Deleting epsiode '{}' to observe epsidoe limit ({}).".format(ep, self.max_episodes))
+                os.remove(ep)
+
+    def __download_episode(self, episode_data):
+        """
+        Where the magic happens. Downloads an episode, ensuring the containing paths 
+        """
         # Check the directory for the podcast and the season (if applicable) exist
         podcast_home_path = os.path.join(self.save_path, self.podcast_name)
         if not os.path.exists(podcast_home_path):
@@ -149,15 +172,18 @@ class Scraper(ABC):
 
         season_path = os.path.split(episode_data["download_path"])[0]
         if not os.path.exists(season_path):
-            os.mkdir(season_path)        
+            os.mkdir(season_path)
+
+        # Delete epsidoes if needed to stick to limit, if a limit exists AND permitted to delete stuff
+        if self.max_episodes and self.delete_episodes_if_over_limit:
+            self.__delete_old_episodes_if_needed(episode_data["download_path"])       
 
         fileResp = requests.get(episode_data["url"], stream = True)
         try:
             with open(episode_data["download_path"], 'wb') as fd:
                 for chunk in fileResp.iter_content(chunk_size=1024):
                     fd.write(chunk)
-            # Delay to not overload servers
-            time.sleep(self.delay)
+            time.sleep(self.delay) # Delay to not overload servers
         except e:
             print("Unable to download {} due to {}".format(episode_data["url"], e))        
 
