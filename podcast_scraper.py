@@ -64,8 +64,8 @@ if __name__ == "__main__":
         try:
             scraper_object = scraper_factory(scraper_config)
             scraper_object.scrape_podcast()
-        except e:
-            print("Unable to complete scraping for {} due to {}".format(scraper["name"], e))
+        except Exception:
+            print("Unable to complete scraping for {}".format(scraper["name"]))
 
     print("Podcast scraping finished.")
 

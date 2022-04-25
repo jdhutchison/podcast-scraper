@@ -12,7 +12,7 @@ def matches_any(s, regexes):
     return False
 
 def tidy_up_title(title):
-    title = re.sub('[!?$/:;]', '', title)
+    title = re.sub('[!?$/:;"]', '', title)
     title = re.sub(', ', ' - ', title)
     return title
 

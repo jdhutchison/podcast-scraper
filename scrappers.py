@@ -6,6 +6,7 @@ import time
 import os
 import utils
 from bs4 import BeautifulSoup
+import lxml
 
 
 class Scraper(ABC):
@@ -34,15 +35,19 @@ class Scraper(ABC):
         episodes = self.get_episodes_from_feed()
         print("There are {} episodes".format(len(episodes)))
         for ep in episodes:
-            episode_data = self.get_episode_data(ep)
-            episode_status = self.__check_episode(episode_data)
-            if episode_status == "OK":
-                print("Downloading episode #{episode} - {title}".format(**episode_data))
-                self.__download_episode(episode_data)
-            elif episode_status == "SKIP":
-                pass
-            elif episode_status == "HALT":
-                break
+            try:
+                episode_data = self.get_episode_data(ep)
+                episode_status = self.__check_episode(episode_data)
+                if episode_status == "OK":
+                    print("Downloading episode #{episode} - {title}".format(**episode_data))
+                    self.__download_episode(episode_data)
+                elif episode_status == "SKIP":
+                    pass
+                elif episode_status == "HALT":
+                    break
+            except Exception as e:
+                print("Error while processing episode {} because {}. Skipping.".format(ep.title.text, e))
+                print(e.traceback())
 
         print("Scrape finished for {}.".format(self.podcast_name))
 
@@ -116,8 +121,9 @@ class Scraper(ABC):
         
         # not too many existing or we can delete episodes if needed
         path = os.path.dirname(episode_data["download_path"])
-        if (0 < self.max_episodes >= len(os.listdir(path))) and not self.delete_episodes_if_over_limit:
-            print("Halting on episode {} due to the maxium number of episodes for this podcast reached ({})".format(episode_data["title"], self.max_episodes_before_halt))
+        current_episodes = len(os.listdir(path)) if os.path.exists(path) else 0
+        if current_episodes and (0 < self.max_episodes <= current_episodes) and not self.delete_episodes_if_over_limit:
+            print("Halting on episode {} due to the maxium number of episodes for this podcast reached ({})".format(episode_data["title"], self.max_episodes))
             return "HALT"
 
         # No reason not to fetch it. 
@@ -174,12 +180,12 @@ class RssXmlScraper(Scraper):
 
     def __init__(self, config):
         self.parse_episode_from_title = config["get_episode_number_from_title"]
-        self.title_parsing_regex = config["title_parsing_regex"]
+        self.title_parsing_regex = config["title_parsing_regex"] if "title_parsing_regex" in config else None
         super(RssXmlScraper, self).__init__(config)
 
     def get_episodes_from_feed(self):
-        response = requests.get(self.feed_url)
-        dom = BeautifulSoup(response.text, 'lxml')
+        response = requests.get(self.feed_url, headers={'User-Agent': 'curl/7.68.0'})
+        dom = BeautifulSoup(response.text, 'xml')
         return dom.find_all('item')
 
     def get_episode_data(self, ep):
@@ -188,8 +194,7 @@ class RssXmlScraper(Scraper):
             episode_data["season"] = ep.find('itunes:season').text
         # episode_data["published_date"] = ep.pubDate.text # TODO: parse pub date into an actual timestamp  
         episode_data["url"] = ep.find("enclosure")['url'] 
-        if self.podcast_name == "The Medici Podcast": 
-            print(ep)  
+ 
         episode_data["title"] = ep.title.text
         episode_data["unparsed_title"] = ep.title.text
         if ep.find('itunes:episode') is not None:
@@ -200,7 +205,11 @@ class RssXmlScraper(Scraper):
            regex = re.search(self.title_parsing_regex, ep.title.text)
            # Title does not parse if there isnn't 2 groups
            if regex is not None and len(regex.groups()) >= 2:
+               print(episode_data["title"])
                episode_data["episode"] = regex.group(1)
                episode_data["title"] = regex.group(2)
 
         return episode_data
+
+            
+        
