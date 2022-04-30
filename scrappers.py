@@ -6,6 +6,7 @@ import time
 import os
 import utils
 from bs4 import BeautifulSoup
+from email.utils import parsedate_to_datetime
 import lxml
 
 
@@ -30,8 +31,15 @@ class Scraper(ABC):
         self.title_must_match_one_of = config["fetch_if_matching"]
         self.get_episode_number_from_title = config["get_episode_number_from_title"]
         self.delete_episodes_if_over_limit = config["delete_episodes_if_over_limit"]
+        self.max_episode_age_in_days = config["max_episode_age_in_days"] if "max_episode_age_in_days" in config else 0
+        if self.max_episode_age_in_days > 0:
+            self.max_age_delta = datetime.timedelta(days=self.max_episode_age_in_days)
 
     def scrape_podcast(self):
+        """
+        Fetches the podcast feed, parses it, and then processes each episode, downloading those that meet all 
+        the criteria. 
+        """
         episodes = self.get_episodes_from_feed()
         print("There are {} episodes".format(len(episodes)))
         for ep in episodes:
@@ -46,9 +54,8 @@ class Scraper(ABC):
                 elif episode_status == "HALT":
                     break
             except Exception as e:
-                print("Error while processing episode {} because {}. Skipping.".format(ep.title.text, e))
-                print(e.traceback())
-
+                print("Error while processing episode {} because {}: {}. Skipping.".format(ep.title.text, type(e), e))
+                
         print("Scrape finished for {}.".format(self.podcast_name))
 
 
@@ -70,6 +77,8 @@ class Scraper(ABC):
         pass
 
     def __determine_download_path(self, episode_data):
+        """
+        """
         path_values = dict()
         path_values["ep_title"] = utils.tidy_up_title(episode_data["title"])
   
@@ -116,8 +125,12 @@ class Scraper(ABC):
                print("Skipping episode {} - already fetched.".format(episode_data["unparsed_title"]))
                return "SKIP"
         
-        # not too old
-        # TODO: implement age check
+        # not too old - HALT rather than skip on the (validated) assumption that feeds are in descending chonological order
+        now = datetime.datetime.now()
+        if self.max_episode_age_in_days > 0:
+            if (now - self.max_age_delta) > episode_data["published_date"]:
+                print("Halting on episode {} due to it being too old (published more than {} days ago)".format(episode_data["title"], self.max_episode_age_in_days))
+                return "HALT"                
         
         # not too many existing or we can delete episodes if needed
         path = os.path.dirname(episode_data["download_path"])
@@ -151,7 +164,8 @@ class Scraper(ABC):
 
     def __download_episode(self, episode_data):
         """
-        Where the magic happens. Downloads an episode, ensuring the containing paths 
+        Where the magic happens. Downloads an episode, ensuring the containing paths such as for the podcast overall
+        and the season if applicable exist before downloading commences so the episode has a directory to go to. 
         """
         # Check the directory for the podcast and the season (if applicable) exist
         podcast_home_path = os.path.join(self.save_path, self.podcast_name)
@@ -192,7 +206,8 @@ class RssXmlScraper(Scraper):
         episode_data = dict()
         if ep.find('itunes:season') is not None:
             episode_data["season"] = ep.find('itunes:season').text
-        # episode_data["published_date"] = ep.pubDate.text # TODO: parse pub date into an actual timestamp  
+        unzoned_timestamp = parsedate_to_datetime(ep.pubDate.text).timestamp()
+        episode_data["published_date"] = datetime.datetime.utcfromtimestamp(unzoned_timestamp)
         episode_data["url"] = ep.find("enclosure")['url'] 
  
         episode_data["title"] = ep.title.text
@@ -205,7 +220,6 @@ class RssXmlScraper(Scraper):
            regex = re.search(self.title_parsing_regex, ep.title.text)
            # Title does not parse if there isnn't 2 groups
            if regex is not None and len(regex.groups()) >= 2:
-               print(episode_data["title"])
                episode_data["episode"] = regex.group(1)
                episode_data["title"] = regex.group(2)
 
