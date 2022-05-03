@@ -2,13 +2,20 @@ import datetime
 import os
 import sys
 import toml
-from scrappers import RssXmlScraper
+from scrappers import Scraper, RssXmlScraper
            
 
 ### ----------------------------------
 ### MAIN AND FRIENDS
 ### ----------------------------------
-def scraper_factory(scraper_config):
+def scraper_factory(scraper_config: dict) -> Scraper:
+    """
+    Turns scraper types from configuration into scraper objects. If there's a need to do any building as opposed
+    to just instantiating then it will happen here, too. 
+
+    params:
+    scraper_config: (dict) The configuration for the scraper to create. MUST have a 'type' key with a string value mapped to it. 
+    """
     scraper_type = scraper_config["type"]
 
     if scraper_type == "rss":
@@ -17,7 +24,8 @@ def scraper_factory(scraper_config):
     else:
         raise Exception("Unsupported or unknown scrapper type of {}".format(scraper_type))
 
-def read_config(args):
+
+def read_config(args: list) -> dict:
     """
     Checks if there is a command line argument and if so tries to use that argument as the path to 
     load configuration. If there is no command line argument then the config file is assumed to be
@@ -42,7 +50,10 @@ def read_config(args):
     return toml.load(config_file_path)
     
 
-if __name__ == "__main__":
+def main() -> None:
+    """
+    The entrypoint. Read the configuration, creates scrappers, lets them do their job. 
+    """
     print("Commencing podcast scraping at {}".format(datetime.datetime.now())) # TODO: fix timestamp format
     config = read_config(sys.argv)
 
@@ -68,5 +79,9 @@ if __name__ == "__main__":
             print("Unable to complete scraping for {}".format(scraper["name"]))
 
     print("Podcast scraping finished.")
+
+
+if __name__ == "__main__":
+    main()
 
     

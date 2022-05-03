@@ -35,7 +35,7 @@ class Scraper(ABC):
         if self.max_episode_age_in_days > 0:
             self.max_age_delta = datetime.timedelta(days=self.max_episode_age_in_days)
 
-    def scrape_podcast(self):
+    def scrape_podcast(self) -> None:
         """
         Fetches the podcast feed, parses it, and then processes each episode, downloading those that meet all 
         the criteria. 
@@ -61,23 +61,38 @@ class Scraper(ABC):
 
 
     @abstractmethod
-    def get_episode_data(self, ep):
+    def get_episode_data(self, ep) -> dict:
         """
-        Must extract the following:
-        - episode title
-        - episode number
-        - season number (if exists)
-        - download url
-        - published time
+        Must extract the following from an entry in a published feed/web page:
+        - episode title (key: title)
+        - episode number (key: episode)
+        - season number (if exists, key: season)
+        - download url (key: url)
+        - published time (key: published_date)
+        - the original/raw title from the feed (key: unparsed_title)
+
+        params:
+        ep: (object) Contains all available information from the feed for an episode. What it is depends on the feed type. Typically an xlmx DOM node. 
+
+        returns dict[str, *]: Mapping of all the key information for the episode, as listed above. 
         """
         pass
 
     @abstractmethod
-    def get_episodes_from_feed(self):
+    def get_episodes_from_feed(self) -> list:
+        """
+        Loads the feed from the Scraper's feed URL and breaks it up into a list of objects to be parsed by get_episode_data.
+        """
         pass
 
-    def __determine_download_path(self, episode_data):
+    def __determine_download_path(self, episode_data: dict) -> str:
         """
+        Calculates the path on disk where an epsidoe should be downloaded to (ie. the full file path) from scraper config and episode details. 
+
+        params:
+        episode_data: (dict[str, *]) The return value of get_episode_data, all available data for the episode. 
+
+        returns str: The path to download episode to. 
         """
         path_values = dict()
         path_values["ep_title"] = utils.tidy_up_title(episode_data["title"])
@@ -91,13 +106,18 @@ class Scraper(ABC):
         return os.path.join(self.save_path, self.podcast_name, filename)
         
 
-    def __check_episode(self, episode_data):
+    def __check_episode(self, episode_data: dict) -> str:
         """
         Checks to see if the episode should be downloaded or not and if the scraper should skip this episode or stop altogether. 
         This method should return one of three string values:
         - "OK": episode can be downloaded
         - "SKIP": Skip episode but keep looking at others
         - "HALT": Do not process any more. 
+
+        params:
+        episode_data: (dict[str, *]) The return value of get_episode_data, all available data for the episode. 
+
+        return str: The action to take (as described above)
         """
         # has no URL
         if "url" not in episode_data or episode_data["url"] is None:
@@ -142,7 +162,7 @@ class Scraper(ABC):
         # No reason not to fetch it. 
         return "OK"
 
-    def __delete_old_episodes_if_needed(self, download_path):
+    def __delete_old_episodes_if_needed(self, download_path: str) -> None:
         """
         Deletes old episodes in order to get a podcast under the limit to download a new episode. Will delete as many episodes
         as required. 
@@ -162,10 +182,13 @@ class Scraper(ABC):
                 print("Deleting epsiode '{}' to observe epsidoe limit ({}).".format(ep, self.max_episodes))
                 os.remove(ep)
 
-    def __download_episode(self, episode_data):
+    def __download_episode(self, episode_data) -> None:
         """
         Where the magic happens. Downloads an episode, ensuring the containing paths such as for the podcast overall
         and the season if applicable exist before downloading commences so the episode has a directory to go to. 
+
+        params: 
+        episode_data: (dict[str, *]) The return value of get_episode_data, all available data for the episode. 
         """
         # Check the directory for the podcast and the season (if applicable) exist
         podcast_home_path = os.path.join(self.save_path, self.podcast_name)
@@ -191,16 +214,21 @@ class Scraper(ABC):
 
 
 class RssXmlScraper(Scraper):
+    """
+    A Scraper implementation which processes an RSS feed for a podcast. 
+    """
 
     def __init__(self, config):
         self.parse_episode_from_title = config["get_episode_number_from_title"]
         self.title_parsing_regex = config["title_parsing_regex"] if "title_parsing_regex" in config else None
         super(RssXmlScraper, self).__init__(config)
 
+
     def get_episodes_from_feed(self):
         response = requests.get(self.feed_url, headers={'User-Agent': 'curl/7.68.0'})
         dom = BeautifulSoup(response.text, 'xml')
         return dom.find_all('item')
+
 
     def get_episode_data(self, ep):
         episode_data = dict()
