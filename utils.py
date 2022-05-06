@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import re
 
@@ -23,6 +24,7 @@ def matches_any(s: str, regexes: list) -> bool:
 
     return False
 
+
 def tidy_up_title(title: str) -> str:
     """
     Cleans up a title by removing characters we don't want in a filename. 
@@ -35,5 +37,4 @@ def tidy_up_title(title: str) -> str:
     title = re.sub('[!?$/:;"]', '', title)
     title = re.sub(', ', ' - ', title)
     return title
-
 

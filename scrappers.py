@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import datetime
+import logging
 import requests
 import re
 import time
@@ -41,22 +42,22 @@ class Scraper(ABC):
         the criteria. 
         """
         episodes = self.get_episodes_from_feed()
-        print("There are {} episodes".format(len(episodes)))
+        logging.debug("There are {} episodes".format(len(episodes)))
         for ep in episodes:
             try:
                 episode_data = self.get_episode_data(ep)
                 episode_status = self.__check_episode(episode_data)
                 if episode_status == "OK":
-                    print("Downloading episode #{episode} - {title}".format(**episode_data))
+                    logging.info("Downloading episode #{episode} - {title}".format(**episode_data))
                     self.__download_episode(episode_data)
                 elif episode_status == "SKIP":
                     pass
                 elif episode_status == "HALT":
                     break
             except Exception as e:
-                print("Error while processing episode {} because {}: {}. Skipping.".format(ep.title.text, type(e), e))
+                logging.critical("Error while processing episode {} because {}: {}. Skipping.".format(ep.title.text, type(e), e))
                 
-        print("Scrape finished for {}.".format(self.podcast_name))
+        logging.info("Scrape finished for {}.".format(self.podcast_name))
 
 
 
@@ -121,17 +122,17 @@ class Scraper(ABC):
         """
         # has no URL
         if "url" not in episode_data or episode_data["url"] is None:
-            print("Skipping episode {} - no download URL.".format(episode_data["unparsed_title"]))
+            logging.info("Skipping episode {} - no download URL.".format(episode_data["unparsed_title"]))
             return "SKIP"
 
         # no match bad regexes
         if len(self.ignore_if_title_match_any) and utils.matches_any(episode_data["unparsed_title"], self.ignore_if_title_match_any):
-            print("Skipping episode {} - title matches an exlcusion filter, one of: {}.".format(episode_data["unparsed_title"], self.ignore_if_title_match_any))
+            logging.info("Skipping episode {} - title matches an exlcusion filter, one of: {}.".format(episode_data["unparsed_title"], self.ignore_if_title_match_any))
             return "SKIP"       
         
         # matches one good regex
         if len(self.title_must_match_one_of) and not utils.matches_any(episode_data["unparsed_title"], self.title_must_match_one_of):
-            print("Skipping episode {} - title does not meet requirements to match at least one of: {}.".format(episode_data["unparsed_title"], self.title_must_match_one_of))
+            logging.info("Skipping episode {} - title does not meet requirements to match at least one of: {}.".format(episode_data["unparsed_title"], self.title_must_match_one_of))
             return "SKIP"
 
         # Already exists
@@ -139,24 +140,24 @@ class Scraper(ABC):
         if os.path.exists(episode_data["download_path"]):
            # Halt or keep going? 
            if self.halt_on_existing:
-               print("Halting on episode {} - already fetched. Scraper is up to date.".format(episode_data["unparsed_title"]))
+               logging.info("Halting on episode {} - already fetched. Scraper is up to date.".format(episode_data["unparsed_title"]))
                return "HALT"
            else:
-               print("Skipping episode {} - already fetched.".format(episode_data["unparsed_title"]))
+               logging.debug("Skipping episode {} - already fetched.".format(episode_data["unparsed_title"]))
                return "SKIP"
         
         # not too old - HALT rather than skip on the (validated) assumption that feeds are in descending chonological order
         now = datetime.datetime.now()
         if self.max_episode_age_in_days > 0:
             if (now - self.max_age_delta) > episode_data["published_date"]:
-                print("Halting on episode {} due to it being too old (published more than {} days ago)".format(episode_data["title"], self.max_episode_age_in_days))
+                logging.info("Halting on episode {} due to it being too old (published more than {} days ago)".format(episode_data["title"], self.max_episode_age_in_days))
                 return "HALT"                
         
         # not too many existing or we can delete episodes if needed
         path = os.path.dirname(episode_data["download_path"])
         current_episodes = len(os.listdir(path)) if os.path.exists(path) else 0
         if current_episodes and (0 < self.max_episodes <= current_episodes) and not self.delete_episodes_if_over_limit:
-            print("Halting on episode {} due to the maxium number of episodes for this podcast reached ({})".format(episode_data["title"], self.max_episodes))
+            logging.info("Halting on episode {} due to the maxium number of episodes for this podcast reached ({})".format(episode_data["title"], self.max_episodes))
             return "HALT"
 
         # No reason not to fetch it. 
@@ -179,7 +180,7 @@ class Scraper(ABC):
             files = [os.path.join(path, f) for f in os.listdir(path) if not os.path.isdir(os.path.join(path, f))] # Exclude directories
             episodes = sorted(files, key=os.path.getctime)
             for ep in episodes[0:over_limit]:
-                print("Deleting epsiode '{}' to observe epsidoe limit ({}).".format(ep, self.max_episodes))
+                logging.debug("Deleting epsiode '{}' to observe epsidoe limit ({}).".format(ep, self.max_episodes))
                 os.remove(ep)
 
     def __download_episode(self, episode_data) -> None:
@@ -193,24 +194,27 @@ class Scraper(ABC):
         # Check the directory for the podcast and the season (if applicable) exist
         podcast_home_path = os.path.join(self.save_path, self.podcast_name)
         if not os.path.exists(podcast_home_path):
+            logging.debug("Creating podcast home path {}".format(podcast_home_path))
             os.mkdir(podcast_home_path)
 
         season_path = os.path.split(episode_data["download_path"])[0]
         if not os.path.exists(season_path):
-            os.mkdir(season_path)
+            logging.debug("Creating season path {}".format(season_path))
+            os.mkdir(season)
 
         # Delete epsidoes if needed to stick to limit, if a limit exists AND permitted to delete stuff
         if self.max_episodes and self.delete_episodes_if_over_limit:
             self.__delete_old_episodes_if_needed(episode_data["download_path"])       
 
         fileResp = requests.get(episode_data["url"], stream = True)
+        logging.debug("Downloading episode #{episode} - {title} to {download_path}.".format(**episode_data))
         try:
             with open(episode_data["download_path"], 'wb') as fd:
                 for chunk in fileResp.iter_content(chunk_size=1024):
                     fd.write(chunk)
             time.sleep(self.delay) # Delay to not overload servers
         except e:
-            print("Unable to download {} due to {}".format(episode_data["url"], e))        
+            logging.critical("Unable to download {} due to {}".format(episode_data["url"], e))        
 
 
 class RssXmlScraper(Scraper):

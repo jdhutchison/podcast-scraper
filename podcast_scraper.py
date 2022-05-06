@@ -1,9 +1,9 @@
 import datetime
+import logging
 import os
 import sys
 import toml
 from scrappers import Scraper, RssXmlScraper
-           
 
 ### ----------------------------------
 ### MAIN AND FRIENDS
@@ -41,8 +41,6 @@ def read_config(args: list) -> dict:
     if len(args) >= 2:
         config_file_path = args[1]
 
-    print("Using '{}' as the configuration file".format(config_file_path))
-
     # Better check it exists
     if not os.path.exists(config_file_path):
         raise Exception("Can't find the configuration file {}.".format(config_file_path))
@@ -54,31 +52,56 @@ def main() -> None:
     """
     The entrypoint. Read the configuration, creates scrappers, lets them do their job. 
     """
-    print("Commencing podcast scraping at {}".format(datetime.datetime.now())) # TODO: fix timestamp format
     config = read_config(sys.argv)
+
+    # Setup logging
+    log_file = config["general"]["log_file"] if "log_file" in config["general"] else "-"
+    log_level = config["general"]["log_level"] if "log_level" in config["general"] else "INFO"
+    setup_logging(log_file, log_level)
+
+    logging.info("Commencing podcast scraping at {}".format(datetime.datetime.now())) # TODO: fix timestamp format
 
     # Determine the active scrapers
     scrapers = config["scrapers"]
     active_scrapers = [scrapers[s] for s in scrapers.keys() if scrapers[s]["enabled"]]
     active_scraper_names = [s["name"] for s in active_scrapers]
-    print("There are {} active scrapers: {}.".format(len(active_scrapers), active_scraper_names))
+    logging.info("There are {} active scrapers: {}.".format(len(active_scrapers), active_scraper_names))
 
     for scraper in active_scrapers:
-        print("Scraping {}".format(scraper["name"]))
+        logging.info("Scraping {}".format(scraper["name"]))
         # Merge default config with scraper specific conig
         scraper_config = config["defaults"].copy()
         scraper_config.update(scraper)
         scraper_config["delay"] = config["general"]["throttle_seconds"]
         scraper_config["save_path"] = config["general"]["save_path"]
-        
 
         try:
             scraper_object = scraper_factory(scraper_config)
             scraper_object.scrape_podcast()
         except Exception as e:
-            print("Unable to complete scraping for {}".format(scraper["name"]))
+            logging.critical("Unable to complete scraping for {}".format(scraper["name"]))
 
-    print("Podcast scraping finished.")
+    logging.info("Podcast scraping finished.")
+
+
+def setup_logging(log_file: str = "-", log_level: str = 'INFO') -> None:
+    """
+    Sets up the logging with basic config. There's two modes - to stdout or to a file. 
+
+    Other than the destination the logging to a file will also be timestamped. Defaults to stdout with a log level of INFO.
+
+    params:
+    log_file: (str) Where to log to. The value "-" is used to represent STDOUT and is the default. 
+    log_level: (str) How much to log. Should be one of DEBUG, INFO, CRITICAL or FATAL. 
+    """
+    # String level to numeric equivalent
+    level = getattr(logging, log_level.upper(), None)
+
+    # To stdout or a file?
+    if log_file == "-":
+        logging.basicConfig(stream=sys.stdout, level=level, format="[%(levelname)s] %(message)s")
+    else:
+        logging.basicConfig(filename=log_file, level=level, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 if __name__ == "__main__":
