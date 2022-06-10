@@ -9,7 +9,7 @@ import utils
 from bs4 import BeautifulSoup
 from email.utils import parsedate_to_datetime
 import lxml
-
+import traceback
 
 class Scraper(ABC):
     """
@@ -36,29 +36,52 @@ class Scraper(ABC):
         if self.max_episode_age_in_days > 0:
             self.max_age_delta = datetime.timedelta(days=self.max_episode_age_in_days)
 
+
     def scrape_podcast(self) -> None:
         """
         Fetches the podcast feed, parses it, and then processes each episode, downloading those that meet all 
         the criteria. 
         """
+        # Check the directory for the podcast and the season (if applicable) exist
+        self.podcast_home_path = os.path.join(self.save_path, self.podcast_name)
+
+        # If we're downloading this podcast for the first time then we want to halt on hitting them limit WITHOUT deleting
+        # ie. Grab the latest N episodes then stop - prevents the bug trying to grab everything and ending up with N oldest. 
+        if not os.path.exists(self.podcast_home_path):
+            self.delete_episodes_if_over_limit = False
+        
         episodes = self.get_episodes_from_feed()
         logging.debug("There are {} episodes".format(len(episodes)))
-        for ep in episodes:
-            try:
-                episode_data = self.get_episode_data(ep)
-                episode_status = self.__check_episode(episode_data)
-                if episode_status == "OK":
-                    logging.info("Downloading episode #{episode} - {title}".format(**episode_data))
-                    self.__download_episode(episode_data)
-                elif episode_status == "SKIP":
-                    pass
-                elif episode_status == "HALT":
-                    break
-            except Exception as e:
-                logging.critical("Error while processing episode {} because {}: {}. Skipping.".format(ep.title.text, type(e), e))
-                
+        
+        status = "OK"
+        i = 0    
+        while status != "HALT":
+            status = self.scrape_episode(episodes[i])
+            i += 1
+
         logging.info("Scrape finished for {}.".format(self.podcast_name))
 
+
+    def scrape_episode(self, episode) -> str:
+        """
+        Processes one episode from the feed. 
+
+        params:
+        episode (Node): A node of the XML doc with the episode data. 
+        
+        returns str: The status of the episode processing - OK, SKIP or HALT. SKIP on error.  
+        """
+        try:
+            episode_data = self.get_episode_data(episode)
+            episode_status = self.__check_episode(episode_data)
+            if episode_status == "OK":
+                logging.info("Downloading episode #{episode} - {title}".format(**episode_data))
+                self.__download_episode(episode_data)
+            return episode_status
+        except Exception as e:
+            logging.critical("Error while processing episode {} because {}: {}. Skipping.".format(episode.title.text, type(e), e))
+            traceback.print_exception(type(e), e, e.__traceback__)
+            return "SKIP"
 
 
     @abstractmethod
@@ -163,6 +186,7 @@ class Scraper(ABC):
         # No reason not to fetch it. 
         return "OK"
 
+
     def __delete_old_episodes_if_needed(self, download_path: str) -> None:
         """
         Deletes old episodes in order to get a podcast under the limit to download a new episode. Will delete as many episodes
@@ -183,6 +207,7 @@ class Scraper(ABC):
                 logging.debug("Deleting epsiode '{}' to observe epsidoe limit ({}).".format(ep, self.max_episodes))
                 os.remove(ep)
 
+
     def __download_episode(self, episode_data) -> None:
         """
         Where the magic happens. Downloads an episode, ensuring the containing paths such as for the podcast overall
@@ -192,10 +217,9 @@ class Scraper(ABC):
         episode_data: (dict[str, *]) The return value of get_episode_data, all available data for the episode. 
         """
         # Check the directory for the podcast and the season (if applicable) exist
-        podcast_home_path = os.path.join(self.save_path, self.podcast_name)
-        if not os.path.exists(podcast_home_path):
-            logging.debug("Creating podcast home path {}".format(podcast_home_path))
-            os.mkdir(podcast_home_path)
+        if not os.path.exists(self.podcast_home_path):
+            logging.debug("Creating podcast home path {}".format(self.podcast_home_path))
+            os.mkdir(self.podcast_home_path)
 
         season_path = os.path.split(episode_data["download_path"])[0]
         if not os.path.exists(season_path):
@@ -254,7 +278,11 @@ class RssXmlScraper(Scraper):
            if regex is not None and len(regex.groups()) >= 2:
                episode_data["episode"] = regex.group(1)
                episode_data["title"] = regex.group(2)
-
+           else:
+               parsed = utils.simple_title_parsing(ep.title.text)
+               episode_data["episode"] = parsed[0]
+               episode_data["title"] = parsed[1]
+ 
         return episode_data
 
             

@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import toml
+import traceback
 from scrappers import Scraper, RssXmlScraper
 
 ### ----------------------------------
@@ -80,6 +81,7 @@ def main() -> None:
             scraper_object.scrape_podcast()
         except Exception as e:
             logging.critical("Unable to complete scraping for {}".format(scraper["name"]))
+            traceback.print_exception(type(e), e, e.__traceback__)
 
     logging.info("Podcast scraping finished.")
 

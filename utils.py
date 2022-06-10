@@ -38,3 +38,23 @@ def tidy_up_title(title: str) -> str:
     title = re.sub(', ', ' - ', title)
     return title
 
+
+def simple_title_parsing(original_title: str) -> (str, str):
+    """
+    Parses the title without resorting to regular expressions. This is to assist with cases where the regexes
+    seem to fail. Especially cases with titles like [num]: [title] or [num]-[title]. 
+
+    If the input doesnt start with numeric characters then this function is no good. 
+
+    params:
+    original_title: (str) the original title
+
+    returns tuple(str, str): the episode number and the title as a tuple. 
+    """
+    index = 0
+    while original_title[index].isnumeric():
+        index += 1
+    
+    episode = original_title[:index]
+    title = original_title[index+1:].strip()
+    return (episode, title)
