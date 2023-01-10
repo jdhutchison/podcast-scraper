@@ -247,8 +247,13 @@ class RssXmlScraper(Scraper):
     """
 
     def __init__(self, config):
-        self.parse_episode_from_title = config["get_episode_number_from_title"]
-        self.title_parsing_regex = config["title_parsing_regex"] if "title_parsing_regex" in config else None
+        if "title_parsing_regex" in config: 
+            self.title_parsing_regex = config["title_parsing_regex"]
+            self.episode_number_source = 'TITLE'
+        else:
+            self.title_parsing_regex = None
+            self.episode_number_source = config["episode_number_source"] if "episode_number_source" in config else "METADATA"
+        
         super(RssXmlScraper, self).__init__(config)
 
 
@@ -272,7 +277,7 @@ class RssXmlScraper(Scraper):
             episode_data["episode"] = ep.find('itunes:episode').text
 
         # manual extract title and episode number
-        if self.parse_episode_from_title:
+        if self.episode_number_source == 'TITLE':
            regex = re.search(self.title_parsing_regex, ep.title.text)
            # Title does not parse if there isnn't 2 groups
            if regex is not None and len(regex.groups()) >= 2:
@@ -282,6 +287,9 @@ class RssXmlScraper(Scraper):
                parsed = utils.simple_title_parsing(ep.title.text)
                episode_data["episode"] = parsed[0]
                episode_data["title"] = parsed[1]
+        elif self.episode_number_source == 'COUNT':
+            # Cast from int to str for consistency
+            episode_data['episode'] = str(utils.infer_episode_number_from_path(self.podcast_home_path))
  
         return episode_data
 
